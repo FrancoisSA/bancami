@@ -1,0 +1,19 @@
+[Unit]
+Description=Budget Bot — Interface Web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=fsalazar
+Group=fsalazar
+WorkingDirectory=/home/fsalazar/budget-bot
+ExecStart=/home/fsalazar/budget-bot/venv/bin/python web.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=budget-web
+
+[Install]
+WantedBy=multi-user.target

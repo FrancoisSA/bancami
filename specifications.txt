@@ -1,0 +1,287 @@
+Appli bancaire
+
+# Prompt — Application de suivi budgétaire via Telegram
+
+-----
+
+## Contexte du projet
+
+Je veux construire une application personnelle de suivi budgétaire. Le principe :
+
+- J’envoie des **captures d’écran de mon application bancaire** à un **bot Telegram privé** (auquel je suis le seul à avoir accès)
+- Le bot extrait automatiquement les transactions, les classe par catégorie, les stocke sans doublon dans un fichier JSON, et génère un **burndown chart** de mon budget par catégorie
+
+**Cible de déploiement : Raspberry Pi 5** (ARM64, Raspberry Pi OS Bookworm 64-bit, 4 ou 8 Go de RAM). Le bot doit tourner en continu comme un service système, démarrer automatiquement au boot, et redémarrer en cas de crash.
+
+-----
+
+## Stack technique souhaitée
+
+- **Matériel** : Raspberry Pi 5 (ARM64, Raspberry Pi OS Bookworm 64-bit)
+- **Langage** : Python 3.11+ (pré-installé sur Bookworm)
+- **Bot Telegram** : bibliothèque `python-telegram-bot` (v21+)
+- **Extraction d’image** : API Anthropic Claude (`claude-sonnet-4-5`) avec vision
+- **Stockage** : fichier JSON local (`transactions.json`)
+- **Graphiques** : `matplotlib` avec backend `Agg` (headless, sans affichage — le Pi tourne sans écran)
+- **Lancement** : service `systemd` pour démarrage automatique et redémarrage en cas de crash
+- **Environnement virtuel** : `venv` Python pour isoler les dépendances
+
+-----
+
+## Architecture attendue
+
+```
+project/
+├── bot.py                  # Point d'entrée principal du bot Telegram
+├── extractor.py            # Extraction des transactions depuis une image via Claude Vision
+├── storage.py              # Lecture/écriture JSON sans doublon
+├── classifier.py           # Classification des transactions par catégorie
+├── budget.py               # Définition des budgets par catégorie et calcul du bilan
+├── charts.py               # Génération du burndown chart
+├── config.py               # Clés API et paramètres (chargés depuis .env)
+├── transactions.json        # Base de données locale
+├── merchants.json           # Mémoire des commerçants appris
+├── .env                    # Variables d'environnement (NE PAS commiter)
+├── requirements.txt
+└── budget-bot.service      # Fichier systemd pour lancement automatique sur le Pi
+```
+
+-----
+
+## Fonctionnalités détaillées
+
+### 1. Bot Telegram sécurisé
+
+- Le bot répond **uniquement à mon `user_id` Telegram** (whitelist stricte avec mon ID numérique)
+- Toute autre personne reçoit un message d’erreur et le message est ignoré
+- Commandes disponibles :
+  - Envoyer une photo → déclenche l’extraction automatique
+  - `/bilan` → affiche le bilan texte par catégorie
+  - `/graphique` → envoie le burndown chart en image PNG
+  - `/transactions` → liste les N dernières transactions
+  - `/budget` → affiche les budgets définis par catégorie
+  - `/reset_mois` → remet les totaux à zéro pour un nouveau mois
+  - `/sante` → état du système (uptime, espace disque, température CPU du Pi)
+
+### 2. Extraction des transactions (Claude Vision)
+
+Quand je transmets une capture d’écran au bot :
+
+- L’image est envoyée à l’API Claude en base64
+- Le prompt d’extraction demande à Claude de retourner **uniquement du JSON** au format suivant :
+
+```json
+[
+  {
+    "date": "2026-04-04",
+    "label": "CHEZ LUDO",
+    "amount": 37.14,
+    "currency": "EUR",
+    "transaction_id": "hash_unique_généré"
+  }
+]
+```
+
+- `transaction_id` est un hash SHA1 de `date + label + amount` pour détecter les doublons
+- Si aucune transaction n’est détectée, Claude répond avec `[]` et le bot envoie un message d’erreur explicite
+
+### 3. Stockage sans doublon (`transactions.json`)
+
+Structure du fichier :
+
+```json
+{
+  "transactions": [
+    {
+      "transaction_id": "abc123",
+      "date": "2026-04-04",
+      "label": "CHEZ LUDO",
+      "amount": 37.14,
+      "currency": "EUR",
+      "category": "🥩 Boucherie",
+      "added_at": "2026-04-05T10:22:00"
+    }
+  ]
+}
+```
+
+- Avant d’ajouter une transaction, on vérifie si `transaction_id` existe déjà
+- Les doublons sont ignorés silencieusement, avec un compteur affiché à l’utilisateur
+- L’écriture est **atomique** : écriture dans un fichier `.tmp` puis renommage (critique sur carte SD/SSD pour éviter la corruption)
+
+### 4. Classification automatique
+
+Un dictionnaire de règles mappe les mots-clés du libellé vers une catégorie :
+
+```python
+RULES = {
+    "CHEZ LUDO": "🥩 Boucherie",
+    "ACTION": "🛍️ Bazar / Discount",
+    "GREECE": "🛒 Supermarché",
+    "INTERMARCHE": "🛒 Supermarché",
+    "CASINO": "🛒 Supermarché",
+    "ORANGE": "📱 Abonnement",
+    "SAMANRO": "🚚 Livraison surgelés",
+    "BIO": "🌿 Bio",
+    "NETFLIX": "🎬 Streaming",
+    # ... extensible
+}
+```
+
+- Si aucune règle ne matche → catégorie `"❓ Non classé"`
+- La classification est **enrichie par Claude** si le libellé est inconnu (appel API optionnel)
+- Les catégories apprises sont sauvegardées dans `merchants.json` pour réutilisation
+
+### 5. Budgets et bilan
+
+Fichier `budget.py` avec les budgets mensuels par catégorie (facilement éditables) :
+
+```python
+MONTHLY_BUDGETS = {
+    "🛒 Supermarché": 400,
+    "🥩 Boucherie": 80,
+    "🌿 Bio": 60,
+    "🛍️ Bazar / Discount": 50,
+    "🚚 Livraison surgelés": 40,
+    "📱 Abonnement": 60,
+    "🎬 Streaming": 20,
+    "🍽️ Restaurant": 100,
+    "❓ Non classé": 0,
+}
+```
+
+Le bilan `/bilan` renvoie :
+
+```
+📊 Bilan du mois — Avril 2026
+
+🛒 Supermarché    : 94,34 € / 400 € (23%) ✅
+🥩 Boucherie      : 37,14 € / 80 €  (46%) ⚠️
+📱 Abonnement     : 13,99 € / 60 €  (23%) ✅
+🛍️ Bazar          : 47,49 € / 50 €  (95%) 🔴
+...
+
+💸 Total dépensé  : 213,01 €
+💰 Budget total   : 810 €
+📉 Reste           : 596,99 €
+```
+
+Icônes dynamiques : ✅ < 70% | ⚠️ 70–90% | 🔴 > 90%
+
+### 6. Burndown chart
+
+La commande `/graphique` génère et envoie une image PNG :
+
+- **Type** : burndown chart par catégorie
+- **Axe X** : jours du mois (1 → 31)
+- **Axe Y** : budget restant (commence à 100% et descend)
+- **Une ligne par catégorie** (couleurs distinctes)
+- **Ligne de référence** : budget idéal (ligne diagonale droite du budget initial à 0)
+- Les catégories dépassées apparaissent **en rouge sous zéro**
+- Légende claire avec budget total et dépensé
+- Style : fond sombre, police lisible, export PNG 1200×700px
+- `matplotlib.use('Agg')` appelé en tête de `charts.py` (indispensable en mode headless)
+
+### 7. Commande `/sante` (spécifique Raspberry Pi)
+
+Retourne un résumé de l’état du Pi :
+
+```
+🩺 Santé du système
+
+🤖 Bot actif depuis : 2j 4h 32min
+💾 Espace disque : 18,4 Go libres / 29,7 Go
+🌡️ Température CPU : 47,3 °C
+🐍 Python : 3.11.2
+📦 Transactions stockées : 42
+```
+
+La température se lit depuis `/sys/class/thermal/thermal_zone0/temp` (valeur en millièmes de degrés).
+
+-----
+
+## Sécurité
+
+- Le `TELEGRAM_BOT_TOKEN` et `ANTHROPIC_API_KEY` sont dans un `.env` (jamais dans le code)
+- Mon `TELEGRAM_USER_ID` est dans le `.env` également
+- Le bot vérifie l’ID à chaque message reçu, avant tout traitement
+- Les images reçues ne sont jamais stockées sur disque (traitées en mémoire)
+- Le service systemd tourne sous un **utilisateur non-root** (ex: `pi`)
+
+-----
+
+## Variables d’environnement (`.env`)
+
+```env
+TELEGRAM_BOT_TOKEN=ton_token_ici
+ANTHROPIC_API_KEY=ta_clé_ici
+TELEGRAM_USER_ID=ton_id_numerique_ici
+DATA_FILE=transactions.json
+MERCHANTS_FILE=merchants.json
+```
+
+-----
+
+## Comportement attendu — Flux complet
+
+```
+[Moi] → Envoie une photo au bot Telegram
+[Bot] → "📸 Image reçue, analyse en cours..."
+[Bot → Claude Vision] → Extraction JSON des transactions
+[Bot] → Déduplication + classification
+[Bot] → "✅ 3 transactions ajoutées, 1 doublon ignoré
+         • CHEZ LUDO — 37,14 € → 🥩 Boucherie
+         • ACTION — 47,49 €    → 🛍️ Bazar
+         • ORANGE — 13,99 €    → 📱 Abonnement"
+
+[Moi] → /graphique
+[Bot] → [Envoie une image PNG du burndown chart]
+
+[Moi] → /bilan
+[Bot] → [Affiche le bilan texte par catégorie]
+
+[Moi] → /sante
+[Bot] → [Affiche uptime, température CPU, espace disque]
+```
+
+-----
+
+## Ce que je te demande de produire
+
+1. **Tous les fichiers Python** listés dans l’architecture ci-dessus, complets et fonctionnels
+1. Un **`requirements.txt`** avec toutes les dépendances et leurs versions, **testées compatibles ARM64 / Raspberry Pi OS Bookworm**
+1. Un fichier **`budget-bot.service`** pour systemd, contenant :
+- `Restart=always` et `RestartSec=10`
+- `User=pi` (non-root)
+- Le chemin vers le venv Python
+- `WorkingDirectory` pointant vers le dossier projet
+1. Un **`README.md`** avec les instructions d’installation pas à pas **sur Raspberry Pi OS Bookworm** :
+- Créer le bot Telegram via BotFather et récupérer son `user_id`
+- `sudo apt update && sudo apt upgrade -y`
+- Installer les dépendances système : `python3-venv`, `python3-pip`, `libopenblas-dev`, `libatlas-base-dev` (requis par numpy/matplotlib sur ARM)
+- Créer le virtualenv : `python3 -m venv venv`
+- Installer les packages : `venv/bin/pip install -r requirements.txt`
+- Configurer le `.env`
+- Copier et activer le service systemd :
+  
+  ```bash
+  sudo cp budget-bot.service /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable budget-bot
+  sudo systemctl start budget-bot
+  ```
+- Vérifier que le bot tourne : `systemctl status budget-bot` et `journalctl -u budget-bot -f`
+1. Le code doit être **commenté**, modulaire, et facilement extensible (ajouter des catégories, modifier les budgets)
+
+-----
+
+## Contraintes importantes
+
+- Le bot doit être **résilient** : si Claude ne répond pas ou renvoie du JSON invalide, le bot envoie un message d’erreur clair sans crasher
+- Utiliser **async/await** partout (`python-telegram-bot` v21 est entièrement async)
+- L’écriture JSON doit être **atomique** (fichier `.tmp` + renommage) — critique sur carte SD pour éviter la corruption en cas de coupure de courant
+- **Compatibilité ARM64 stricte** : pas de packages nécessitant une compilation exotique ; préférer les wheels disponibles sur PyPI pour `linux/arm64`
+- `matplotlib` doit appeler `matplotlib.use('Agg')` avant tout import de `pyplot` — indispensable en mode headless sans serveur X
+- Mettre en place un **log rotatif** avec `logging.handlers.RotatingFileHandler` (max 5 Mo × 3 fichiers) pour ne pas saturer le stockage du Pi
+- Le service systemd tourne sous un **utilisateur non-root** avec les permissions minimales nécessaires
+- Prévoir la commande `/sante` qui lit la température CPU depuis `/sys/class/thermal/thermal_zone0/temp`

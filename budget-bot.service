@@ -1,0 +1,35 @@
+[Unit]
+Description=Budget Bot — Suivi budgétaire via Telegram
+Documentation=https://github.com/you/budget-bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Utilisateur non-root avec permissions minimales
+User=pi
+Group=pi
+
+# Dossier du projet (adapter si installé ailleurs)
+WorkingDirectory=/home/pi/budget-bot
+
+# Python du virtualenv
+ExecStart=/home/pi/budget-bot/venv/bin/python bot.py
+
+# Redémarrage automatique en cas de crash
+Restart=always
+RestartSec=10
+
+# Variables d'environnement de base (le .env est chargé par python-dotenv)
+Environment=PYTHONUNBUFFERED=1
+
+# Limites de ressources
+# Évite de saturer la RAM du Pi en cas de fuite mémoire
+MemoryMax=256M
+
+# Journaux via systemd/journald (en plus du fichier budget-bot.log)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=budget-bot
+
+[Install]
+WantedBy=multi-user.target

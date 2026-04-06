@@ -1,0 +1,19 @@
+# ── Bot Telegram ──────────────────────────────────────────────────────────────
+# v21+ obligatoire (entièrement async / await)
+python-telegram-bot==21.6
+
+# ── API Anthropic Claude ──────────────────────────────────────────────────────
+anthropic==0.34.2
+
+# ── Graphiques — backend Agg (headless, ARM64 compatible) ────────────────────
+matplotlib==3.9.2
+
+# ── Variables d'environnement ─────────────────────────────────────────────────
+python-dotenv==1.0.1
+
+# ── Dépendances transitives (wheels ARM64 disponibles sur PyPI) ───────────────
+# numpy est requis par matplotlib — dernière version compatible Python 3.9 et ARM64
+numpy==1.26.4
+
+# httpx est requis par anthropic SDK
+httpx==0.27.2

@@ -1,0 +1,23 @@
+# Environnement Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Variables sensibles — NE JAMAIS commiter
+.env
+
+# Données utilisateur — restent sur le Pi
+transactions.json
+merchants.json
+budgets.json
+global_budget.json
+opening_balances.json
+income_categories.json
+*.json.tmp
+
+# Logs
+*.log
+
+# macOS
+.DS_Store

@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Budget Bot — Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3e;
+      --text: #e0e0f0; --muted: #7878a0; --accent: #4fc3f7;
+      --green: #81c784; --orange: #ffb74d; --red: #f06292;
+    }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
+
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+    header h1 { font-size: 17px; font-weight: 600; }
+    header h1 span { color: var(--accent); }
+    .month-select { margin-left: auto; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+
+    .tabs { display: flex; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+    .tab { padding: 12px 20px; font-size: 13px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; transition: color .15s; user-select: none; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .main { padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+
+    /* KPI */
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+    .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; }
+    .kpi .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+    .kpi .value { font-size: 26px; font-weight: 700; margin-top: 4px; }
+    .kpi .sub   { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+    /* Budget global */
+    .global-budget-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px 24px; }
+    .gb-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+    .gb-title  { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+    .gb-amounts { margin-left: auto; font-size: 13px; color: var(--muted); }
+    .gb-amounts strong { color: var(--text); font-size: 15px; }
+    .gb-bar-wrap { height: 10px; background: var(--border); border-radius: 5px; overflow: hidden; }
+    .gb-bar-fill { height: 100%; border-radius: 5px; transition: width .5s; }
+    .gb-footer { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--muted); }
+
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+    .card-header { display: flex; align-items: center; margin-bottom: 12px; }
+    .card-title { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+    .chart-wrap { position: relative; height: 280px; }
+
+    /* Burndown toggles */
+    .burndown-toggles { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .toggle-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px 3px 6px; border-radius: 20px; font-size: 11px;
+      background: var(--border); cursor: pointer; user-select: none; border: 1px solid transparent;
+      transition: background .15s;
+    }
+    .toggle-chip input { width: 12px; height: 12px; cursor: pointer; accent-color: var(--accent); }
+    .toggle-chip.checked { background: rgba(79,195,247,.12); border-color: rgba(79,195,247,.3); }
+
+    /* Tables */
+    .table-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+    .table-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+    .table-header h2 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap; }
+    th:hover { color: var(--text); }
+    td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.03); }
+    .amount { font-variant-numeric: tabular-nums; font-weight: 500; }
+    .empty { text-align: center; color: var(--muted); padding: 40px; }
+
+    .cat-select { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 6px; font-size: 12px; cursor: pointer; max-width: 200px; }
+    .cat-select:focus { outline: none; border-color: var(--accent); }
+
+    .pct-bar-wrap { display: flex; align-items: center; gap: 8px; }
+    .pct-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .pct-bar-fill { height: 100%; border-radius: 3px; transition: width .4s; }
+    .pct-num { font-size: 12px; color: var(--muted); min-width: 36px; text-align: right; }
+
+    .search { margin-left: auto; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; font-size: 13px; width: 200px; }
+    .search::placeholder { color: var(--muted); }
+
+    /* Settings */
+    .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 900px) { .settings-grid { grid-template-columns: 1fr; } }
+    .form-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+    .inp { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 7px 12px; border-radius: 6px; font-size: 13px; flex: 1; min-width: 100px; }
+    .inp::placeholder { color: var(--muted); }
+    select.inp { cursor: pointer; }
+    .btn { padding: 7px 16px; border-radius: 6px; border: none; font-size: 13px; cursor: pointer; font-weight: 500; white-space: nowrap; }
+    .btn-primary { background: var(--accent); color: #0f1117; }
+    .btn-primary:hover { opacity: .85; }
+    .btn-danger  { background: transparent; border: 1px solid var(--red); color: var(--red); padding: 4px 10px; font-size: 12px; }
+    .btn-danger:hover { background: rgba(240,98,146,.15); }
+    .btn-edit    { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; font-size: 12px; }
+    .btn-edit:hover { color: var(--text); border-color: var(--muted); }
+    .btn-save    { background: transparent; border: 1px solid var(--green); color: var(--green); padding: 4px 10px; font-size: 12px; }
+    .btn-save:hover { background: rgba(129,199,132,.15); }
+
+    /* Inline edit cells */
+    .edit-inp { background: var(--bg); border: 1px solid var(--accent); color: var(--text); padding: 3px 8px; border-radius: 5px; font-size: 13px; width: 100%; }
+
+    .gb-setting { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .gb-setting label { color: var(--muted); font-size: 13px; flex: 1; }
+
+    .toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface); border: 1px solid var(--border); padding: 12px 20px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 99; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>📊</div>
+  <h1>Budget <span>Bot</span></h1>
+  <select class="month-select" id="monthSelect" onchange="loadDashboard()">
+    <option value="">Chargement…</option>
+  </select>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('dashboard', this)">Dashboard</div>
+  <div class="tab" onclick="switchTab('settings', this)">⚙️ Catégories & Budgets</div>
+</div>
+
+<!-- ══════════════════════ DASHBOARD ══════════════════════ -->
+<div id="tab-dashboard" class="tab-content active">
+  <div class="main">
+
+    <!-- Budget global bar -->
+    <div class="global-budget-card" id="globalBudgetCard" style="display:none">
+      <div class="gb-header">
+        <span class="gb-title">💼 Budget global du mois</span>
+        <div class="gb-amounts"><strong id="gbSpent">—</strong> <span style="color:var(--muted)"> dépensé sur </span><strong id="gbTotal">—</strong></div>
+      </div>
+      <div class="gb-bar-wrap"><div class="gb-bar-fill" id="gbBarFill" style="width:0%"></div></div>
+      <div class="gb-footer"><span id="gbPct">—</span><span id="gbReste">—</span></div>
+      <div id="gbForecastWrap" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:3px">Solde prévisionnel révisé fin de mois</div>
+        <div id="gbForecastSolde" style="font-size:22px;font-weight:700">—</div>
+        <div id="gbForecastDetail" style="font-size:11px;color:var(--muted);margin-top:2px">—</div>
+      </div>
+    </div>
+
+    <!-- Burndown -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">Burndown</span></div>
+      <div class="chart-wrap"><canvas id="chartBurndown"></canvas></div>
+      <!-- Chips sous le graphique -->
+      <div class="burndown-toggles" id="burndownToggles" style="margin-top:12px;margin-bottom:0"></div>
+    </div>
+
+    <!-- Bilan -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">Bilan par catégorie</span></div>
+      <table>
+        <thead><tr><th>Catégorie</th><th style="width:200px">Progression</th></tr></thead>
+        <tbody id="bilanBody"><tr><td colspan="2" class="empty">Chargement…</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- Transactions -->
+    <div class="table-card">
+      <div class="table-header">
+        <h2>Transactions</h2>
+        <input class="search" id="searchInput" type="text" placeholder="Rechercher…" oninput="filterTable()">
+      </div>
+      <table>
+        <thead><tr>
+          <th onclick="sortTable('date')">Date</th>
+          <th onclick="sortTable('label')">Libellé</th>
+          <th onclick="sortTable('amount')">Montant</th>
+          <th>Catégorie</th>
+          <th style="width:50px"></th>
+        </tr></thead>
+        <tbody id="txBody"><tr><td colspan="5" class="empty">Chargement…</td></tr></tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════ SETTINGS ══════════════════════ -->
+<div id="tab-settings" class="tab-content">
+  <div class="main">
+
+    <div class="table-card">
+      <div class="table-header"><h2>💳 Solde initial du mois</h2></div>
+      <div class="gb-setting">
+        <label>Solde bancaire au 1er du mois <span id="openingBalanceMonthLabel" style="color:var(--accent)"></span></label>
+        <input class="inp" id="openingBalanceInput" type="number" min="0" step="10" placeholder="ex: 2500" style="max-width:140px">
+        <button class="btn btn-primary" onclick="saveOpeningBalance()">Enregistrer</button>
+        <button class="btn btn-danger" onclick="clearOpeningBalance()" title="Supprimer">✕</button>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-top:12px">
+        Affiche le solde estimé en cours de mois (solde départ − dépenses) et adapte le burndown chart.
+      </p>
+    </div>
+
+    <div class="table-card">
+      <div class="table-header"><h2>💼 Budget global mensuel</h2></div>
+      <div class="gb-setting">
+        <label>Enveloppe totale du mois (toutes catégories confondues)</label>
+        <input class="inp" id="globalBudgetInput" type="number" min="0" step="10" placeholder="ex: 1500" style="max-width:140px">
+        <button class="btn btn-primary" onclick="saveGlobalBudget()">Enregistrer</button>
+        <button class="btn btn-danger" onclick="clearGlobalBudget()" title="Désactiver">✕</button>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-top:12px">
+        Affiche une barre de progression globale en haut du dashboard. Utilisé aussi comme référence dans le burndown chart.
+      </p>
+    </div>
+
+    <div class="settings-grid">
+
+      <!-- Budgets -->
+      <div class="table-card">
+        <div class="table-header"><h2>💰 Budgets par catégorie</h2></div>
+        <div id="budgetsTotalBar" style="display:none;background:var(--surface2,#1e2130);border:1px solid var(--border);border-radius:8px;padding:16px 20px;margin-bottom:12px">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:4px">Solde prév.</div>
+          <div id="budgetsTotalSolde" style="font-size:30px;font-weight:700;line-height:1.1;margin-bottom:10px">—</div>
+          <hr style="border:none;border-top:1px solid var(--border);margin:0 0 8px">
+          <div id="budgetsTotalDetail" style="font-size:12px;color:var(--muted)">—</div>
+        </div>
+        <table>
+          <thead><tr><th>Catégorie</th><th>Budget (€)</th><th></th></tr></thead>
+          <tbody id="budgetsBody"><tr><td colspan="3" class="empty">Chargement…</td></tr></tbody>
+        </table>
+        <div class="form-row">
+          <input class="inp" id="newBudgetCat" placeholder="🏷️ Nouvelle catégorie" list="catList">
+          <input class="inp" id="newBudgetAmount" placeholder="Montant €" type="number" min="0" step="1" style="max-width:110px">
+          <button class="btn btn-primary" onclick="addBudget()">Ajouter</button>
+        </div>
+      </div>
+
+      <!-- Règles -->
+      <div class="table-card">
+        <div class="table-header"><h2>🏷️ Règles de classification</h2></div>
+        <table id="rulesTable">
+          <thead><tr><th>Mot-clé</th><th>Catégorie</th><th style="width:100px"></th></tr></thead>
+          <tbody id="rulesBody"><tr><td colspan="3" class="empty">Chargement…</td></tr></tbody>
+        </table>
+        <div class="form-row">
+          <input class="inp" id="newRuleKeyword" placeholder="Mot-clé (ex: AMAZON)">
+          <select class="inp" id="newRuleCategory" style="max-width:200px"><option value="">— Catégorie —</option></select>
+          <button class="btn btn-primary" onclick="addRule()">Ajouter</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<datalist id="catList"></datalist>
+<div class="toast" id="toast"></div>
+
+<script>
+  const COLORS = ['#4FC3F7','#81C784','#FFB74D','#F06292','#CE93D8','#80DEEA','#FFCC80','#A5D6A7','#EF9A9A','#90CAF9','#FFF176','#BCAAA4'];
+
+  // Échelle "power" : exposant 0.4 — plus douce que log, étire les petites valeurs sans écraser les grandes
+  (function registerPowerScale() {
+    const EXP = 0.4;
+    const pw  = v => Math.pow(Math.max(v, 0), EXP);
+    const upw = v => Math.pow(Math.max(v, 0), 1 / EXP);
+    class PowerScale extends Chart.Scale {
+      static id       = 'power';
+      static defaults = { min: 0 };
+      determineDataLimits() {
+        const { min, max } = this.getMinMax(false);
+        this.min = Math.max(min ?? 0, 0);
+        this.max = max ?? 1;
+      }
+      buildTicks() {
+        const max = this.max;
+        const candidates = [0,5,10,20,50,100,150,200,300,500,750,1000,1500,2000,3000,5000];
+        this.ticks = candidates
+          .filter(v => v <= max * 1.1)
+          .map(v => ({ value: v, major: false }));
+        return this.ticks;
+      }
+      getLabelForValue(v) { return Math.round(v) + '€'; }
+      getPixelForValue(value) {
+        const tMin = pw(this.min), tMax = pw(this.max);
+        const pct  = tMax > tMin ? (pw(value) - tMin) / (tMax - tMin) : 0;
+        return this.bottom - pct * (this.bottom - this.top);
+      }
+      getValueForPixel(pixel) {
+        const tMin = pw(this.min), tMax = pw(this.max);
+        const pct  = (this.bottom - pixel) / (this.bottom - this.top);
+        return upw(pct * (tMax - tMin) + tMin);
+      }
+    }
+    Chart.register(PowerScale);
+  })();
+
+  // Icônes de fallback pour les catégories sans emoji
+  const FALLBACK_ICONS = ['🏷️','💡','📌','🎯','🔖','📎','🗂️','📂','💠','🔹'];
+  const _iconCache = {};
+  function catIcon(name) {
+    // Si le nom commence déjà par un emoji, le retourner tel quel
+    if (/^\p{Emoji}/u.test(name.trim())) return name;
+    if (!_iconCache[name]) {
+      // Assigner un icône déterministe basé sur le hash du nom
+      const h = [...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) & 0xffff, 0);
+      _iconCache[name] = FALLBACK_ICONS[h % FALLBACK_ICONS.length] + ' ' + name;
+    }
+    return _iconCache[name];
+  }
+
+  let chartBurndown;
+  let allTx = [], allCats = [], burndownData = null;
+  let sortKey = 'date', sortDir = -1;
+  Chart.defaults.color = '#7878a0';
+
+  // ── Tabs ──────────────────────────────────────────────────────────────────
+  function switchTab(name, el) {
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    el.classList.add('active');
+    if (name === 'settings') loadSettings();
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  async function init() {
+    const months = await fetch('/api/months').then(r => r.json());
+    const sel = document.getElementById('monthSelect');
+    sel.innerHTML = '';
+    if (!months.length) { sel.innerHTML = '<option>Aucune donnée</option>'; return; }
+    months.forEach((m, i) => {
+      const o = document.createElement('option');
+      o.value = m.value; o.textContent = m.label;
+      if (i === 0) o.selected = true;
+      sel.appendChild(o);
+    });
+    allCats = await fetch('/api/settings/categories').then(r => r.json());
+    loadDashboard();
+  }
+
+  function selectedYM() {
+    const v = document.getElementById('monthSelect').value;
+    if (!v) return {};
+    const [y, m] = v.split('-');
+    return { year: y, month: m };
+  }
+
+  async function loadDashboard() {
+    const ym = selectedYM();
+    if (!ym.year) return;
+    await Promise.all([loadBilan(ym), loadBurndown(ym), loadTx(ym)]);
+  }
+
+  // ── Bilan + KPI ───────────────────────────────────────────────────────────
+  async function loadBilan({ year, month }) {
+    const res  = await fetch(`/api/bilan?year=${year}&month=${month}`).then(r => r.json());
+    const data = res.rows;
+    const totalSpent = res.total_spent, totalBudget = res.total_budget;
+    const gb = res.global_budget;
+
+    // Budget global bar
+    const card = document.getElementById('globalBudgetCard');
+    if (gb) {
+      card.style.display = '';
+      const pct   = Math.min((totalSpent / gb) * 100, 100);
+      const reste = gb - totalSpent;
+      const color = pct > 90 ? 'var(--red)' : pct > 70 ? 'var(--orange)' : 'var(--accent)';
+      document.getElementById('gbSpent').textContent = fmt(totalSpent);
+      document.getElementById('gbTotal').textContent = fmt(gb);
+      document.getElementById('gbBarFill').style.cssText = `width:${pct}%;background:${color}`;
+      document.getElementById('gbPct').textContent   = pct.toFixed(1) + '% utilisé';
+      document.getElementById('gbPct').style.color   = color;
+      document.getElementById('gbReste').textContent = (reste >= 0 ? '💚 Reste ' : '🔴 Dépassement ') + fmt(Math.abs(reste));
+    } else {
+      card.style.display = 'none';
+    }
+
+    // ── Solde prévisionnel révisé (formule 3) ────────────────────────────────
+    const incomeTotal  = res.income_total || 0;
+    const incomeCatSet = new Set(res.income_categories || []);
+    const forecastWrap = document.getElementById('gbForecastWrap');
+    if (incomeTotal > 0 || gb) {
+      const now         = new Date();
+      const isCurrentMonth = parseInt(year) === now.getFullYear() && parseInt(month) === now.getMonth() + 1;
+      const daysInMonth = new Date(parseInt(year), parseInt(month), 0).getDate();
+      const elapsed     = isCurrentMonth ? Math.max(now.getDate(), 1) : daysInMonth;
+
+      let totalProjected = 0;
+      for (const row of data) {
+        if (incomeCatSet.has(row.category)) continue;
+        const spent = Math.max(row.spent, 0);
+        if (row.budget > 0) {
+          // Catégorie budgétée : on projette qu'on atteindra le budget
+          // Si déjà dépassé, on garde le dépassement
+          totalProjected += Math.max(spent, row.budget);
+        } else {
+          // Pas de budget : on extrapole linéairement sur le mois
+          totalProjected += elapsed > 0 ? (spent / elapsed) * daysInMonth : spent;
+        }
+      }
+
+      const revisedSolde = incomeTotal - totalProjected;
+      const col = revisedSolde >= 0 ? 'var(--green)' : 'var(--red)';
+      const sign = revisedSolde >= 0 ? '+' : '';
+      const alert = !isCurrentMonth ? '' : revisedSolde < 0 ? ' ⚠️ Découvert probable' : ' ✅ Budget tenu';
+
+      forecastWrap.style.display = 'block';
+      document.getElementById('gbForecastSolde').textContent = sign + fmt(revisedSolde);
+      document.getElementById('gbForecastSolde').style.color = col;
+      document.getElementById('gbForecastDetail').textContent =
+        `In : ${fmt(incomeTotal)}  ·  Out projeté : ${fmt(totalProjected)}${alert}`;
+    } else {
+      forecastWrap.style.display = 'none';
+    }
+
+    // Bilan table — trié par % consommé décroissant
+    document.getElementById('bilanBody').innerHTML = data.length
+      ? [...data].sort((a, b) => b.pct - a.pct).map(r => {
+          const pct = Math.min(r.pct, 100);
+          const col = r.pct > 90 ? 'var(--red)' : r.pct > 70 ? 'var(--orange)' : 'var(--green)';
+          return `<tr>
+            <td>${catIcon(r.category)}</td>
+            <td><div class="pct-bar-wrap">
+              <div class="pct-bar"><div class="pct-bar-fill" style="width:${pct}%;background:${col}"></div></div>
+              <div class="pct-num" style="color:${col}">${r.pct}%</div>
+            </div></td>
+          </tr>`;
+        }).join('')
+      : '<tr><td colspan="2" class="empty">Aucune donnée</td></tr>';
+
+  }
+
+  // ── Burndown ──────────────────────────────────────────────────────────────
+  async function loadBurndown({ year, month }) {
+    burndownData = await fetch(`/api/burndown?year=${year}&month=${month}`).then(r => r.json());
+    buildBurndownToggles();
+    renderBurndown();
+  }
+
+  const BURNDOWN_PREFS_KEY = 'burndown_selected_cats';
+
+  function saveBurndownPrefs() {
+    const chips = document.querySelectorAll('#burndownToggles .toggle-chip');
+    const selected = [];
+    chips.forEach(chip => {
+      if (chip.querySelector('input').checked)
+        selected.push(chip.dataset.cat);
+    });
+    localStorage.setItem(BURNDOWN_PREFS_KEY, JSON.stringify(selected));
+  }
+
+  function buildBurndownToggles() {
+    const saved = JSON.parse(localStorage.getItem(BURNDOWN_PREFS_KEY) || '[]');
+    const wrap = document.getElementById('burndownToggles');
+    wrap.innerHTML = '';
+    burndownData.series.forEach((s, i) => {
+      const chip = document.createElement('label');
+      chip.className = 'toggle-chip';
+      chip.dataset.cat = s.category;
+      const checked = saved.includes(s.category) ? 'checked' : '';
+      chip.innerHTML = `<input type="checkbox" ${checked} onchange="saveBurndownPrefs();renderBurndown()">
+        <span style="color:${COLORS[i % COLORS.length]};font-size:13px">●</span>
+        <span>${stripEmoji(catIcon(s.category))}</span>`;
+      wrap.appendChild(chip);
+    });
+  }
+
+  function renderBurndown() {
+    if (!burndownData) return;
+    const chips = document.querySelectorAll('#burndownToggles .toggle-chip');
+
+    // Dataset global toujours visible en premier
+    const prev = burndownData.previous;
+    const globalLabel = burndownData.global.is_balance ? 'Solde estimé' : 'Ce mois-ci';
+
+    // Pour le mois courant, ne pas tracer au-delà d'aujourd'hui
+    const now = new Date();
+    const { year, month } = selectedYM();
+    const isCurrentMonth = parseInt(year) === now.getFullYear() && parseInt(month) === now.getMonth() + 1;
+    const todayDay = now.getDate();
+    const globalData = isCurrentMonth
+      ? burndownData.global.data.map((v, i) => (i + 1) <= todayDay ? v : null)
+      : burndownData.global.data;
+
+    const datasets = [
+      // Mois courant — ligne pleine bleue
+      {
+        label:            globalLabel,
+        data:             globalData,
+        borderColor:      '#4fc3f7',
+        backgroundColor:  'rgba(79,195,247,0.08)',
+        borderWidth:      3,
+        pointRadius:      0,
+        pointHoverRadius: 5,
+        tension:          0.3,
+        fill:             true,
+      },
+      // Mois précédent — ligne pointillée grise
+      {
+        label:            `Mois précédent (${prev.label})`,
+        data:             prev.data,
+        borderColor:      '#9090b0',
+        backgroundColor:  'transparent',
+        borderWidth:      1.5,
+        borderDash:       [6, 4],
+        pointRadius:      0,
+        pointHoverRadius: 3,
+        tension:          0.3,
+      },
+    ];
+
+    // Ajouter les catégories cochées (mois courant + mois précédent en pointillés)
+    burndownData.series.forEach((s, i) => {
+      const checked = chips[i]?.querySelector('input')?.checked;
+      chips[i]?.classList.toggle('checked', !!checked);
+      if (!checked) return;
+      const color = COLORS[i % COLORS.length];
+      const catData = isCurrentMonth
+        ? s.data.map((v, j) => (j + 1) <= todayDay ? v : null)
+        : s.data;
+      // Ligne pleine — mois courant
+      datasets.push({
+        label:            stripEmoji(catIcon(s.category)),
+        data:             catData,
+        borderColor:      color,
+        backgroundColor:  'transparent',
+        borderWidth:      1.5,
+        pointRadius:      0,
+        pointHoverRadius: 3,
+        tension:          0.3,
+      });
+      // Ligne pointillée — mois précédent (même couleur, plus transparent)
+      if (s.prev_data) {
+        datasets.push({
+          label:            stripEmoji(catIcon(s.category)) + ' (mois préc.)',
+          data:             s.prev_data,
+          borderColor:      color + '66',
+          backgroundColor:  'transparent',
+          borderWidth:      1,
+          borderDash:       [4, 4],
+          pointRadius:      0,
+          pointHoverRadius: 2,
+          tension:          0.3,
+        });
+      }
+    });
+
+    if (chartBurndown) chartBurndown.destroy();
+    chartBurndown = new Chart(document.getElementById('chartBurndown'), {
+      type: 'line',
+      data: { labels: burndownData.days, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#aaaacc', font: { size: 10 }, boxWidth: 12 } } },
+        scales: {
+          x: { ticks: { color: '#7878a0', maxTicksLimit: 10 }, grid: { color: '#2a2d3e' } },
+          y: {
+            type: 'power',
+            ticks: { color: '#7878a0' },
+            grid: { color: '#2a2d3e' }
+          }
+        }
+      }
+    });
+  }
+
+  // ── Transactions ──────────────────────────────────────────────────────────
+  async function loadTx({ year, month }) {
+    allTx = await fetch(`/api/transactions?year=${year}&month=${month}`).then(r => r.json());
+    renderTx();
+  }
+
+  function renderTx() {
+    const q = document.getElementById('searchInput').value.toLowerCase();
+    let rows = allTx.filter(tx =>
+      !q || tx.label?.toLowerCase().includes(q) || tx.category?.toLowerCase().includes(q) || tx.date?.includes(q)
+    ).sort((a, b) => {
+      let va = a[sortKey] ?? '', vb = b[sortKey] ?? '';
+      if (sortKey === 'amount') { va = +va; vb = +vb; }
+      return va < vb ? -sortDir : va > vb ? sortDir : 0;
+    });
+
+    document.getElementById('txBody').innerHTML = rows.length
+      ? rows.map(tx => {
+          const opts = allCats.map(c =>
+            `<option value="${esc(c)}" ${c===tx.category?'selected':''}>${catIcon(c)}</option>`
+          ).join('');
+          const isCredit = tx.type === 'credit';
+          const sign  = isCredit ? '+' : '−';
+          const color = isCredit ? 'var(--green)' : 'var(--red)';
+          return `<tr id="txrow-${esc(tx.transaction_id)}">
+            <td>${tx.date}</td>
+            <td>${tx.label}</td>
+            <td class="amount" style="color:${color}">${sign}${(+tx.amount).toFixed(2)} €</td>
+            <td><select class="cat-select" onchange="updateCategory('${esc(tx.transaction_id)}', this)">${opts}</select></td>
+            <td><button class="btn btn-edit" style="padding:3px 8px" onclick="startEditTx('${esc(tx.transaction_id)}')">✏️</button></td>
+          </tr>`;
+        }).join('')
+      : '<tr><td colspan="4" class="empty">Aucune transaction</td></tr>';
+  }
+
+  async function updateCategory(txId, sel) {
+    const res = await fetch(`/api/transactions/${encodeURIComponent(txId)}`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ category: sel.value }),
+    });
+    if ((await res.json()).ok) {
+      const tx = allTx.find(t => t.transaction_id === txId);
+      if (tx) tx.category = sel.value;
+      loadBilan(selectedYM());
+      toast('✅ Catégorie mise à jour');
+    }
+  }
+
+  function startEditTx(txId) {
+    const tx = allTx.find(t => t.transaction_id === txId);
+    if (!tx) return;
+    const row = document.getElementById(`txrow-${esc(txId)}`);
+    const opts = allCats.map(c =>
+      `<option value="${esc(c)}" ${c===tx.category?'selected':''}>${catIcon(c)}</option>`
+    ).join('');
+    row.innerHTML = `
+      <td><input class="edit-inp" id="etx-date-${esc(txId)}" type="date" value="${tx.date}" style="width:130px"></td>
+      <td><input class="edit-inp" id="etx-label-${esc(txId)}" value="${esc(tx.label)}" style="width:100%"></td>
+      <td style="display:flex;gap:4px;align-items:center">
+        <input class="edit-inp" id="etx-amount-${esc(txId)}" type="number" min="0" step="0.01" value="${(+tx.amount).toFixed(2)}" style="width:90px">
+        <select class="edit-inp" id="etx-type-${esc(txId)}" style="width:80px">
+          <option value="debit"  ${tx.type!=='credit'?'selected':''}>− débit</option>
+          <option value="credit" ${tx.type==='credit'?'selected':''}>+ crédit</option>
+        </select>
+      </td>
+      <td><select class="cat-select" id="etx-cat-${esc(txId)}">${opts}</select></td>
+      <td style="display:flex;gap:4px">
+        <button class="btn btn-save" onclick="saveEditTx('${esc(txId)}')">💾</button>
+        <button class="btn btn-edit" onclick="renderTx()">✕</button>
+      </td>`;
+  }
+
+  async function saveEditTx(txId) {
+    const updates = {
+      date:     document.getElementById(`etx-date-${esc(txId)}`).value,
+      label:    document.getElementById(`etx-label-${esc(txId)}`).value,
+      amount:   parseFloat(document.getElementById(`etx-amount-${esc(txId)}`).value),
+      type:     document.getElementById(`etx-type-${esc(txId)}`).value,
+      category: document.getElementById(`etx-cat-${esc(txId)}`).value,
+    };
+    if (!updates.date || !updates.label || isNaN(updates.amount)) return;
+    const res = await fetch(`/api/transactions/${encodeURIComponent(txId)}`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(updates),
+    });
+    if ((await res.json()).ok) {
+      const tx = allTx.find(t => t.transaction_id === txId);
+      if (tx) Object.assign(tx, updates);
+      renderTx();
+      loadBilan(selectedYM());
+      toast('✅ Transaction modifiée');
+    }
+  }
+
+  function filterTable() { renderTx(); }
+  function sortTable(key) {
+    if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = -1; }
+    renderTx();
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // SETTINGS
+  // ════════════════════════════════════════════════════════════════════════
+  async function loadSettings() {
+    await Promise.all([loadOpeningBalanceInput(), loadGlobalBudgetInput(), loadBudgetsTable(), loadRulesTable(), loadCategoriesList()]);
+  }
+
+  async function loadOpeningBalanceInput() {
+    const ym = selectedYM();
+    if (!ym.year) return;
+    const { amount } = await fetch(`/api/settings/opening-balance?year=${ym.year}&month=${ym.month}`).then(r => r.json());
+    document.getElementById('openingBalanceInput').value = amount || '';
+    const sel = document.getElementById('monthSelect');
+    const label = sel.options[sel.selectedIndex]?.text || '';
+    document.getElementById('openingBalanceMonthLabel').textContent = label ? `(${label})` : '';
+  }
+
+  async function saveOpeningBalance() {
+    const ym = selectedYM();
+    if (!ym.year) return;
+    const amount = parseFloat(document.getElementById('openingBalanceInput').value);
+    if (!amount || amount <= 0) return;
+    await fetch(`/api/settings/opening-balance?year=${ym.year}&month=${ym.month}`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({amount}),
+    });
+    toast('✅ Solde initial enregistré');
+    loadDashboard();
+  }
+
+  async function clearOpeningBalance() {
+    const ym = selectedYM();
+    if (!ym.year) return;
+    await fetch(`/api/settings/opening-balance?year=${ym.year}&month=${ym.month}`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({amount: 0}),
+    });
+    document.getElementById('openingBalanceInput').value = '';
+    toast('🗑️ Solde initial supprimé');
+    loadDashboard();
+  }
+
+  async function loadGlobalBudgetInput() {
+    const { amount } = await fetch('/api/settings/global-budget').then(r => r.json());
+    document.getElementById('globalBudgetInput').value = amount || '';
+  }
+
+  async function saveGlobalBudget() {
+    const amount = parseFloat(document.getElementById('globalBudgetInput').value);
+    if (!amount || amount <= 0) return;
+    await fetch('/api/settings/global-budget', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({amount}) });
+    toast('✅ Budget global enregistré');
+    loadDashboard();
+  }
+
+  async function clearGlobalBudget() {
+    await fetch('/api/settings/global-budget', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({amount:0}) });
+    document.getElementById('globalBudgetInput').value = '';
+    toast('🗑️ Budget global désactivé');
+    loadDashboard();
+  }
+
+  // ── Budgets ───────────────────────────────────────────────────────────────
+  async function loadBudgetsTable() {
+    const [data, incomeCats] = await Promise.all([
+      fetch('/api/settings/budgets').then(r => r.json()),
+      fetch('/api/settings/income-categories').then(r => r.json()),
+    ]);
+    const incomeSet = new Set(incomeCats);
+
+    const expTotal  = data.filter(b => !incomeSet.has(b.category)).reduce((s, b) => s + (parseFloat(b.amount) || 0), 0);
+    const incTotal  = data.filter(b =>  incomeSet.has(b.category)).reduce((s, b) => s + (parseFloat(b.amount) || 0), 0);
+    const solde     = incTotal - expTotal;
+    const bar = document.getElementById('budgetsTotalBar');
+    if (expTotal > 0 || incTotal > 0) {
+      bar.style.display = 'block';
+      const col = solde >= 0 ? 'var(--green)' : 'var(--red)';
+      document.getElementById('budgetsTotalSolde').textContent = (solde >= 0 ? '+' : '') + fmt(solde);
+      document.getElementById('budgetsTotalSolde').style.color = col;
+      document.getElementById('budgetsTotalDetail').innerHTML =
+        `In : <strong style="color:var(--green)">${fmt(incTotal)}</strong>` +
+        `&ensp;/&ensp;Out : <strong>${fmt(expTotal)}</strong>`;
+    } else {
+      bar.style.display = 'none';
+    }
+
+    document.getElementById('budgetsBody').innerHTML = data.length
+      ? data.map(b => {
+          const isIncome = incomeSet.has(b.category);
+          const typeBtn = `<button class="btn ${isIncome ? 'btn-save' : 'btn-edit'}"
+            title="${isIncome ? 'Revenu — cliquer pour passer en dépense' : 'Dépense — cliquer pour passer en revenu'}"
+            onclick="toggleIncomeCat('${esc(b.category)}', ${!isIncome})"
+            style="padding:2px 8px;font-size:12px">${isIncome ? '💰' : '💸'}</button>`;
+          return `<tr id="brow-${esc(b.category)}">
+            <td>
+              <span id="bcat-${esc(b.category)}">${catIcon(b.category)}</span>
+              <button class="btn btn-edit" onclick="startRenameCategory('${esc(b.category)}')" style="padding:2px 6px;font-size:11px;margin-left:6px" title="Renommer">✏️</button>
+            </td>
+            <td><input class="inp" id="bamt-${esc(b.category)}" value="${b.amount}" type="number" min="0" step="1" style="width:90px;padding:4px 8px"></td>
+            <td style="display:flex;gap:6px;padding:6px 12px">
+              ${typeBtn}
+              <button class="btn btn-edit" onclick="saveBudget('${esc(b.category)}')">Sauver</button>
+              <button class="btn btn-danger" onclick="deleteBudget('${esc(b.category)}')">✕</button>
+            </td>
+          </tr>`;
+        }).join('')
+      : '<tr><td colspan="3" class="empty">Aucun budget</td></tr>';
+  }
+
+  async function toggleIncomeCat(cat, isIncome) {
+    await fetch('/api/settings/income-categories', {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ category: cat, income: isIncome }),
+    });
+    loadBudgetsTable();
+  }
+
+  function startRenameCategory(cat) {
+    const cell = document.getElementById(`bcat-${esc(cat)}`).parentElement;
+    cell.innerHTML = `
+      <input class="edit-inp" id="renameinp-${esc(cat)}" value="${esc(cat)}" style="width:160px">
+      <button class="btn btn-save" onclick="confirmRenameCategory('${esc(cat)}')" style="margin-left:4px">💾</button>
+      <button class="btn btn-edit" onclick="loadBudgetsTable()" style="margin-left:2px">✕</button>`;
+    const inp = document.getElementById(`renameinp-${esc(cat)}`);
+    inp.focus(); inp.select();
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') confirmRenameCategory(cat);
+      if (e.key === 'Escape') loadBudgetsTable();
+    });
+  }
+
+  async function confirmRenameCategory(oldCat) {
+    const inp = document.getElementById(`renameinp-${esc(oldCat)}`);
+    if (!inp) return;
+    const newCat = inp.value.trim();
+    if (!newCat || newCat === oldCat) { loadBudgetsTable(); return; }
+    const res  = await fetch('/api/settings/categories/rename', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ old_name: oldCat, new_name: newCat }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      allCats = allCats.map(c => c === oldCat ? newCat : c);
+      await Promise.all([loadBudgetsTable(), loadRulesTable(), loadCategoriesList()]);
+      loadDashboard();
+      toast(`✅ "${oldCat}" → "${newCat}" (${data.transactions_updated} transaction(s) mise(s) à jour)`);
+    }
+  }
+
+  async function saveBudget(cat) {
+    const amount = document.getElementById(`bamt-${esc(cat)}`).value;
+    await fetch('/api/settings/budgets', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({category:cat, amount}) });
+    toast('✅ Budget enregistré');
+  }
+
+  async function addBudget() {
+    const cat = document.getElementById('newBudgetCat').value.trim();
+    const amount = document.getElementById('newBudgetAmount').value;
+    if (!cat || !amount) return;
+    await fetch('/api/settings/budgets', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({category:cat, amount}) });
+    document.getElementById('newBudgetCat').value = '';
+    document.getElementById('newBudgetAmount').value = '';
+    await loadBudgetsTable(); await loadCategoriesList();
+    toast('✅ Catégorie ajoutée');
+  }
+
+  async function deleteBudget(cat) {
+    if (!confirm(`Supprimer "${cat}" ?`)) return;
+    await fetch(`/api/settings/budgets/${encodeURIComponent(cat)}`, { method:'DELETE' });
+    await loadBudgetsTable(); await loadCategoriesList();
+    toast('🗑️ Supprimé');
+  }
+
+  // ── Règles ────────────────────────────────────────────────────────────────
+  async function loadRulesTable() {
+    const data = await fetch('/api/settings/rules').then(r => r.json());
+    document.getElementById('rulesBody').innerHTML = data.length
+      ? data.map(r => `
+        <tr id="rule-row-${esc(r.keyword)}">
+          <td id="rule-kw-${esc(r.keyword)}"><code style="color:var(--accent)">${r.keyword}</code></td>
+          <td id="rule-cat-${esc(r.keyword)}">${catIcon(r.category)}</td>
+          <td style="display:flex;gap:4px;padding:6px 12px">
+            <button class="btn btn-edit" onclick="editRule('${esc(r.keyword)}', '${esc(r.category)}')">✏️</button>
+            <button class="btn btn-danger" onclick="deleteRule('${esc(r.keyword)}')">✕</button>
+          </td>
+        </tr>`).join('')
+      : '<tr><td colspan="3" class="empty">Aucune règle</td></tr>';
+  }
+
+  function editRule(keyword, currentCat) {
+    const kwCell  = document.getElementById(`rule-kw-${esc(keyword)}`);
+    const catCell = document.getElementById(`rule-cat-${esc(keyword)}`);
+    const row     = document.getElementById(`rule-row-${esc(keyword)}`);
+
+    // Remplacer les cellules par des champs éditables
+    kwCell.innerHTML  = `<input class="edit-inp" id="edit-kw-${esc(keyword)}" value="${keyword}">`;
+    const opts = allCats.map(c => `<option value="${esc(c)}" ${c===currentCat?'selected':''}>${catIcon(c)}</option>`).join('');
+    catCell.innerHTML = `<select class="cat-select" id="edit-cat-${esc(keyword)}" style="max-width:180px">${opts}</select>`;
+
+    // Remplacer les boutons par Sauver / Annuler
+    row.querySelectorAll('td:last-child')[0].innerHTML = `
+      <button class="btn btn-save"   onclick="saveRuleEdit('${esc(keyword)}')">💾</button>
+      <button class="btn btn-edit"   onclick="loadRulesTable()">✕</button>`;
+  }
+
+  async function saveRuleEdit(oldKeyword) {
+    const newKeyword = document.getElementById(`edit-kw-${esc(oldKeyword)}`).value.trim();
+    const newCat     = document.getElementById(`edit-cat-${esc(oldKeyword)}`).value;
+    if (!newKeyword || !newCat) return;
+    await fetch(`/api/settings/rules/${encodeURIComponent(oldKeyword)}`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ keyword: newKeyword, category: newCat }),
+    });
+    await loadRulesTable();
+    toast('✅ Règle modifiée');
+  }
+
+  async function addRule() {
+    const keyword  = document.getElementById('newRuleKeyword').value.trim();
+    const category = document.getElementById('newRuleCategory').value;
+    if (!keyword || !category) return;
+    await fetch('/api/settings/rules', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({keyword, category}) });
+    document.getElementById('newRuleKeyword').value = '';
+    document.getElementById('newRuleCategory').value = '';
+    await loadRulesTable();
+    toast('✅ Règle ajoutée');
+  }
+
+  async function deleteRule(keyword) {
+    if (!confirm(`Supprimer la règle "${keyword}" ?`)) return;
+    await fetch(`/api/settings/rules/${encodeURIComponent(keyword)}`, { method:'DELETE' });
+    await loadRulesTable();
+    toast('🗑️ Règle supprimée');
+  }
+
+  async function loadCategoriesList() {
+    allCats = await fetch('/api/settings/categories').then(r => r.json());
+    document.getElementById('catList').innerHTML = allCats.map(c => `<option value="${c}">`).join('');
+    const sel = document.getElementById('newRuleCategory');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— Catégorie —</option>' +
+      allCats.map(c => `<option value="${c}" ${c===cur?'selected':''}>${catIcon(c)}</option>`).join('');
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function fmt(n) { return (n||0).toFixed(2).replace('.', ',') + ' €'; }
+  function stripEmoji(s) { return (s||'').replace(/[^\x00-\x7FÀ-ÿ\s]/g,'').trim(); }
+  function esc(s) { return (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
+
+  let toastTimer;
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg; el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+  }
+
+  init();
+</script>
+</body>
+</html>
