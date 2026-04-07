@@ -6,7 +6,10 @@ Trois modes d'entrée :
   - PDF                   → Claude Document API (support natif, pas de dépendance externe)
   - Texte brut            → Claude texte
 
-Aucun fichier n'est jamais écrit sur disque (tout en mémoire).
+Notes importantes :
+  - Les dates des relevés sont au format français JJ/MM/AAAA — précisé explicitement dans le prompt
+  - L'année courante est injectée dynamiquement pour éviter que Claude infère une année incorrecte
+  - Aucun fichier n'est jamais écrit sur disque (tout en mémoire)
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ import hashlib
 import json
 import logging
 import re
+from datetime import datetime
 
 import anthropic
 
@@ -23,8 +27,12 @@ from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 
 logger = logging.getLogger(__name__)
 
+
 # ── Prompt commun ─────────────────────────────────────────────────────────────
-_EXTRACTION_PROMPT = """Tu es un assistant d'analyse de relevés bancaires.
+def _build_extraction_prompt() -> str:
+    """Génère le prompt d'extraction en injectant l'année courante réelle."""
+    current_year = datetime.now().year
+    return f"""Tu es un assistant d'analyse de relevés bancaires.
 
 Extrait TOUTES les transactions présentes dans ce document.
 
@@ -34,17 +42,17 @@ Commence directement par [ et termine par ].
 
 Format de chaque transaction :
 [
-  {
+  {{
     "date": "YYYY-MM-DD",
     "label": "LIBELLÉ EN MAJUSCULES",
     "amount": 37.14,
     "currency": "EUR",
     "type": "debit"
-  }
+  }}
 ]
 
 Règles :
-- date : format ISO YYYY-MM-DD (si seulement jour/mois visible, utilise l'année en cours)
+- date : les dates du document sont au format français JJ/MM/AAAA ou JJ/MM. Convertis en ISO YYYY-MM-DD. Si seuls jour/mois sont visibles, l'année est {current_year}.
 - label : libellé exact en majuscules
 - amount : valeur absolue positive (jamais négatif)
 - currency : EUR par défaut
@@ -142,7 +150,7 @@ async def extract_transactions_from_image(image_bytes: bytes, mime_type: str = "
             "type": "image",
             "source": {"type": "base64", "media_type": mime_type, "data": image_b64},
         },
-        {"type": "text", "text": _EXTRACTION_PROMPT},
+        {"type": "text", "text": _build_extraction_prompt()},
     ]
     return await _call_claude(content)
 
@@ -158,7 +166,7 @@ async def extract_transactions_from_pdf(pdf_bytes: bytes) -> list[dict]:
             "type": "document",
             "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64},
         },
-        {"type": "text", "text": _EXTRACTION_PROMPT},
+        {"type": "text", "text": _build_extraction_prompt()},
     ]
     return await _call_claude(content, max_tokens=8192)
 
@@ -171,7 +179,7 @@ async def extract_transactions_from_text(text: str) -> list[dict]:
     content = [
         {
             "type": "text",
-            "text": f"{_EXTRACTION_PROMPT}\n\nTexte à analyser :\n\n{text}",
+            "text": f"{_build_extraction_prompt()}\n\nTexte à analyser :\n\n{text}",
         }
     ]
     return await _call_claude(content, max_tokens=8192)

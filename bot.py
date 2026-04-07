@@ -3,8 +3,11 @@ bot.py — Point d'entrée principal du bot Telegram de suivi budgétaire.
 
 Fonctionnement :
   - Seul l'utilisateur whitelisté (TELEGRAM_USER_ID) est traité
-  - Toute photo reçue déclenche l'extraction via Claude Vision
-  - Commandes disponibles : /bilan /graphique /transactions /budget /reset_mois /sante
+  - Toute photo/PDF/texte reçu déclenche l'extraction via Claude Vision,
+    suivie d'un résumé budgétaire automatique (/resume)
+  - Tous les messages sont préfixés [BANCAMI] pour identification visuelle
+  - Commandes : /start /bilan /resume /graphique /transactions /budget /reset_mois /sante
+  - Bilan automatique envoyé chaque jour à 9h00 via APScheduler job_queue
 
 Lancement : python bot.py
 """
@@ -68,6 +71,9 @@ logger = logging.getLogger(__name__)
 # Horodatage de démarrage (pour /sante)
 _START_TIME = time.monotonic()
 
+# Préfixe ajouté à tous les messages envoyés par le bot
+_P = "<b>[BANCAMI]</b>\n"
+
 
 # ── Décorateur de sécurité : whitelist stricte ────────────────────────────────
 
@@ -90,7 +96,7 @@ async def _process_and_reply(update: Update, raw_transactions: list[dict]) -> No
     """Classification + stockage + réponse — partagé entre tous les handlers."""
     if not raw_transactions:
         await update.message.reply_text(
-            "⚠️ Aucune transaction détectée.\n"
+            _P + "⚠️ Aucune transaction détectée.\n"
             "Vérifiez que le document contient bien un relevé bancaire."
         )
         return
@@ -100,7 +106,7 @@ async def _process_and_reply(update: Update, raw_transactions: list[dict]) -> No
 
     added, skipped = add_transactions(raw_transactions)
 
-    lines = [f"✅ <b>{added} transaction(s) ajoutée(s)</b>"]
+    lines = [_P + f"✅ <b>{added} transaction(s) ajoutée(s)</b>"]
     if skipped:
         lines.append(f"   ↩️ {skipped} doublon(s) ignoré(s)")
 
@@ -111,6 +117,7 @@ async def _process_and_reply(update: Update, raw_transactions: list[dict]) -> No
             lines.append(f"• {t['label']} — {t['amount']:.2f} € → {t['category']}")
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+    await update.message.reply_text(_build_resume_msg(), parse_mode=ParseMode.HTML)
 
 
 # ── Handler photo ─────────────────────────────────────────────────────────────
@@ -121,7 +128,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await _reject(update)
         return
 
-    await update.message.reply_text("📸 Image reçue, analyse en cours...")
+    await update.message.reply_text(_P + "📸 Image reçue, analyse en cours...")
 
     buf = io.BytesIO()
     await (await update.message.photo[-1].get_file()).download_to_memory(buf)
@@ -131,7 +138,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except RuntimeError as exc:
         logger.error("Erreur extraction image : %s", exc)
         await update.message.reply_text(
-            f"❌ Erreur analyse image :\n<code>{exc}</code>", parse_mode=ParseMode.HTML
+            _P + f"❌ Erreur analyse image :\n<code>{exc}</code>", parse_mode=ParseMode.HTML
         )
         return
 
@@ -158,14 +165,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if not is_pdf and not is_text:
         await update.message.reply_text(
-            "⚠️ Format non supporté. Envoie un <b>PDF</b> ou un fichier <b>.txt/.csv</b>.",
+            _P + "⚠️ Format non supporté. Envoie un <b>PDF</b> ou un fichier <b>.txt/.csv</b>.",
             parse_mode=ParseMode.HTML,
         )
         return
 
     icon  = "📄" if is_pdf else "📝"
     label = "PDF" if is_pdf else "fichier texte"
-    await update.message.reply_text(f"{icon} {label} reçu, analyse en cours...")
+    await update.message.reply_text(_P + f"{icon} {label} reçu, analyse en cours...")
 
     buf = io.BytesIO()
     await (await doc.get_file()).download_to_memory(buf)
@@ -179,7 +186,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     except RuntimeError as exc:
         logger.error("Erreur extraction document : %s", exc)
         await update.message.reply_text(
-            f"❌ Erreur analyse {label} :\n<code>{exc}</code>", parse_mode=ParseMode.HTML
+            _P + f"❌ Erreur analyse {label} :\n<code>{exc}</code>", parse_mode=ParseMode.HTML
         )
         return
 
@@ -200,7 +207,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     text = update.message.text or ""
     if len(text.strip()) < 20:
         await update.message.reply_text(
-            "💬 Pour extraire des transactions, envoie :\n"
+            _P + "💬 Pour extraire des transactions, envoie :\n"
             "• Une <b>photo</b> de ton relevé\n"
             "• Un <b>PDF</b>\n"
             "• Du <b>texte copié</b> depuis ton relevé (min. 20 caractères)\n\n"
@@ -209,14 +216,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    await update.message.reply_text("📝 Texte reçu, analyse en cours...")
+    await update.message.reply_text(_P + "📝 Texte reçu, analyse en cours...")
 
     try:
         raw = await extract_transactions_from_text(text)
     except RuntimeError as exc:
         logger.error("Erreur extraction texte : %s", exc)
         await update.message.reply_text(
-            f"❌ Erreur analyse texte :\n<code>{exc}</code>", parse_mode=ParseMode.HTML
+            _P + f"❌ Erreur analyse texte :\n<code>{exc}</code>", parse_mode=ParseMode.HTML
         )
         return
 
@@ -240,7 +247,7 @@ async def cmd_bilan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     label = f"{_FR_MONTHS[now.month]} {now.year}"
 
     await update.message.reply_text(
-        format_bilan(bilan, label),
+        _P + format_bilan(bilan, label),
         parse_mode=ParseMode.HTML,
     )
 
@@ -251,7 +258,7 @@ async def cmd_graphique(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await _reject(update)
         return
 
-    await update.message.reply_text("📈 Génération du graphique...")
+    await update.message.reply_text(_P + "📈 Génération du graphique...")
 
     now = datetime.now()
     txs = get_transactions_for_month(now.year, now.month)
@@ -260,12 +267,12 @@ async def cmd_graphique(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         png_bytes = generate_burndown_chart(txs, now.year, now.month)
     except Exception as exc:
         logger.error("Erreur génération graphique : %s", exc)
-        await update.message.reply_text(f"❌ Erreur graphique : {exc}")
+        await update.message.reply_text(_P + f"❌ Erreur graphique : {exc}")
         return
 
     await update.message.reply_photo(
         photo=io.BytesIO(png_bytes),
-        caption=f"📊 Burndown chart — {now.strftime('%B %Y')}",
+        caption=f"[BANCAMI] 📊 Burndown chart — {now.strftime('%B %Y')}",
     )
 
 
@@ -287,10 +294,10 @@ async def cmd_transactions(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     recent  = sorted(all_txs, key=lambda t: t.get("date", ""), reverse=True)[:n]
 
     if not recent:
-        await update.message.reply_text("📭 Aucune transaction enregistrée.")
+        await update.message.reply_text(_P + "📭 Aucune transaction enregistrée.")
         return
 
-    lines = [f"🧾 <b>{n} dernières transactions</b>\n"]
+    lines = [_P + f"🧾 <b>{n} dernières transactions</b>\n"]
     for tx in recent:
         lines.append(
             f"<code>{tx['date']}</code>  {tx['label'][:30]:<30}  "
@@ -306,7 +313,7 @@ async def cmd_budget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await _reject(update)
         return
 
-    lines = ["💰 <b>Budgets mensuels</b>\n"]
+    lines = [_P + "💰 <b>Budgets mensuels</b>\n"]
     total = 0.0
     for cat, amount in sorted(MONTHLY_BUDGETS.items(), key=lambda x: -x[1]):
         if amount > 0:
@@ -329,7 +336,7 @@ async def cmd_reset_mois(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     _FR_MONTHS = ["", "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
                   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
     await update.message.reply_text(
-        f"🗑️ {removed} transaction(s) de {_FR_MONTHS[now.month]} {now.year} supprimée(s)."
+        _P + f"🗑️ {removed} transaction(s) de {_FR_MONTHS[now.month]} {now.year} supprimée(s)."
     )
 
 
@@ -367,7 +374,7 @@ async def cmd_sante(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
 
     msg = (
-        "🩺 <b>Santé du système</b>\n\n"
+        _P + "🩺 <b>Santé du système</b>\n\n"
         f"🤖 Bot actif depuis : {uptime}\n"
         f"💾 Espace disque : {disk_str}\n"
         f"🌡️ Température CPU : {temp_str}\n"
@@ -384,7 +391,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await update.message.reply_text(
-        "👋 <b>Budget Bot actif !</b>\n\n"
+        _P + "👋 <b>Budget Bot actif !</b>\n\n"
         "<b>Pour ajouter des transactions, envoie :</b>\n"
         "📸 Une photo de ton relevé bancaire\n"
         "📄 Un fichier PDF\n"
@@ -440,13 +447,16 @@ def _build_resume_msg() -> str:
             total_projected += (spent / elapsed) * days_in_month
     solde = income_total - total_projected
 
+    reste       = ref_budget - total_spent
     icon_budget = "✅" if pct_consumed < 70 else "⚠️" if pct_consumed < 90 else "🔴"
+    icon_reste  = "💚" if reste >= 0 else "🔴"
     icon_solde  = "💚" if solde >= 0 else "🔴"
     sign_solde  = "+" if solde >= 0 else ""
 
     lines = [
-        f"<b>───── {date_str} ─────</b>",
+        _P + f"<b>{date_str}</b>",
         f"{icon_budget} Budget consommé : <b>{total_spent:.2f} € / {ref_budget:.0f} €</b> ({pct_consumed:.0f}%)",
+        f"{icon_reste} Reste disponible : <b>{reste:.2f} €</b>",
         f"{icon_solde} Solde prévisionnel : <b>{sign_solde}{solde:.2f} €</b>",
     ]
     return chr(10).join(lines)
