@@ -595,7 +595,10 @@
             <td>${tx.label}</td>
             <td class="amount" style="color:${color}">${sign}${(+tx.amount).toFixed(2)} €</td>
             <td><select class="cat-select" onchange="updateCategory('${esc(tx.transaction_id)}', this)">${opts}</select></td>
-            <td><button class="btn btn-edit" style="padding:3px 8px" onclick="startEditTx('${esc(tx.transaction_id)}')">✏️</button></td>
+            <td>
+              <button class="btn btn-edit" style="padding:3px 8px" onclick="startEditTx('${esc(tx.transaction_id)}')" title="Modifier">✏️</button>
+              <button class="btn btn-danger" style="padding:3px 8px;margin-left:4px" onclick="deleteTx('${esc(tx.transaction_id)}')" title="Supprimer">🗑️</button>
+            </td>
           </tr>`;
         }).join('')
       : '<tr><td colspan="4" class="empty">Aucune transaction</td></tr>';
@@ -657,6 +660,20 @@
       renderTx();
       loadBilan(selectedYM());
       toast('✅ Transaction modifiée');
+    }
+  }
+
+  async function deleteTx(txId) {
+    if (!confirm('Supprimer définitivement cette transaction ?')) return;
+    const res = await fetch(`/api/transactions/${encodeURIComponent(txId)}`, { method: 'DELETE' });
+    const result = await res.json();
+    if (result.ok) {
+      allTx = allTx.filter(t => t.transaction_id !== txId);
+      renderTx();
+      loadBilan(selectedYM());
+      toast('🗑️ Transaction supprimée');
+    } else {
+      toast(`❌ Erreur: ${result.error || 'Impossible de supprimer'}`);
     }
   }
 

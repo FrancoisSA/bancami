@@ -30,7 +30,18 @@ logger = logging.getLogger(__name__)
 
 # ── Prompt commun ─────────────────────────────────────────────────────────────
 def _build_extraction_prompt() -> str:
-    """Génère le prompt d'extraction en injectant l'année courante réelle."""
+    """
+    Génère le prompt d'extraction pour Claude API.
+    
+    Points clés :
+    - Année courante injectée pour éviter les erreurs d'inférence
+    - Format de date français JJ/MM/AAAA explicitement spécifié
+    - Exemples concrets pour guider la conversion
+    - Sortie strictement JSON sans texte supplémentaire
+    
+    Note: Ce prompt est appelé à chaque extraction. Pour améliorer les performances,
+    envisager un cache si le même prompt est utilisé fréquemment.
+    """
     current_year = datetime.now().year
     return f"""Tu es un assistant d'analyse de relevés bancaires.
 
@@ -52,7 +63,13 @@ Format de chaque transaction :
 ]
 
 Règles :
-- date : les dates du document sont au format français JJ/MM/AAAA ou JJ/MM. Convertis en ISO YYYY-MM-DD. Si seuls jour/mois sont visibles, l'année est {current_year}.
+- date : les dates sont au format français JJ/MM/AAAA (ex: 31/12/2024) ou JJ/MM/AA (ex: 31/12/24).
+  Convertis TOUJOURS en format ISO YYYY-MM-DD (ex: 2024-12-31).
+  Si l'année n'est pas spécifiée (format JJ/MM), utilise {current_year}.
+  Exemples :
+    "31/12/2024" → "2024-12-31"
+    "31/12/24" → "2024-12-31"
+    "31/12" → "{current_year}-12-31"
 - label : libellé exact en majuscules
 - amount : valeur absolue positive (jamais négatif)
 - currency : EUR par défaut

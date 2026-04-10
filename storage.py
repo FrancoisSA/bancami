@@ -52,12 +52,18 @@ def load_transactions() -> list[dict]:
 
 def add_transactions(new_txs: list[dict]) -> tuple[int, int]:
     """
-    Ajoute les transactions sans doublon.
+    Ajoute des transactions avec déduplication basée sur transaction_id.
 
-    Un doublon est détecté via transaction_id (SHA1 de date+label+amount).
+    Algorithme :
+    1. Charge les transactions existantes
+    2. Crée un set des IDs existants
+    3. Ajoute uniquement les nouvelles transactions
+    4. Sauvegarde de manière atomique (fichier .tmp + os.replace)
 
-    Returns:
-        (nb_added, nb_duplicates)
+    Retourne: (nombre_ajoutées, nombre_ignorées)
+    
+    Note: La déduplication utilise SHA1(date|label|amount) pour garantir
+    l'unicité même si l'utilisateur importe le même relevé plusieurs fois.
     """
     data = _load_raw()
     existing: list[dict] = data.get("transactions", [])
@@ -91,6 +97,24 @@ def get_transactions_for_month(year: int, month: int) -> list[dict]:
         tx for tx in load_transactions()
         if tx.get("date", "").startswith(prefix)
     ]
+
+
+def delete_transaction(transaction_id: str) -> bool:
+    """
+    Supprime une transaction par son ID.
+    Retourne True si supprimée, False sinon.
+    """
+    data = _load_raw()
+    transactions = data.get("transactions", [])
+    
+    initial_count = len(transactions)
+    transactions = [tx for tx in transactions if tx.get("transaction_id") != transaction_id]
+    
+    if len(transactions) < initial_count:
+        data["transactions"] = transactions
+        _save_raw(data)
+        return True
+    return False
 
 
 def reset_month(year: int, month: int) -> int:

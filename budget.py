@@ -28,6 +28,45 @@ _DEFAULTS: dict[str, float] = {
     "❓ Non classé":           0,
 }
 
+# ── Mapping icônes/catégories ───────────────────────────────────────────────
+CATEGORY_ICONS: dict[str, str] = {
+    "Supermarché": "🛒",
+    "Boucherie": "🥩",
+    "Bio": "🌿",
+    "Bazar / Discount": "🛍️",
+    "Livraison surgelés": "🚚",
+    "Abonnement": "📱",
+    "Streaming": "🎬",
+    "Restaurant": "🍽️",
+    "Carburant": "⛽",
+    "Pharmacie": "💊",
+    "Maison": "🏠",
+    "Non classé": "❓",
+    "Salaire": "💰",
+    "Loisirs": "🎮",
+    "Vêtements": "👕",
+    "Cadeaux": "🎁",
+    "Voyage": "✈️",
+    "Santé": "🏥",
+    "Éducation": "📚",
+    "Transport": "🚆",
+    "Impôts": "📋",
+}
+
+
+def get_category_with_icon(category: str) -> str:
+    """Retourne la catégorie avec son icône."""
+    # Extraire le nom sans icône existante
+    name = category.replace("🛒", "").replace("🥩", "").replace("🌿", "") \
+                   .replace("🛍️", "").replace("🚚", "").replace("📱", "") \
+                   .replace("🎬", "").replace("🍽️", "").replace("⛽", "") \
+                   .replace("💊", "").replace("🏠", "").replace("❓", "") \
+                   .strip()
+    
+    # Trouver l'icône correspondante
+    icon = CATEGORY_ICONS.get(name, "❓")
+    return f"{icon} {name}"
+
 _BUDGETS_FILE          = Path(__file__).parent / "budgets.json"
 _GLOBAL_BUDGET_FILE    = Path(__file__).parent / "global_budget.json"
 _OPENING_BALANCES_FILE = Path(__file__).parent / "opening_balances.json"

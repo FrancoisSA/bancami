@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+  <h1 class="text-2xl font-bold mb-6">Tableau de bord budgétaire</h1>
+
+  <!-- Le contenu original sera chargé par JavaScript -->
+  <div id="app"></div>
+</div>
+
+<script type="module">
+  import { createApp } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js'
+  
+  createApp({
+    data() {
+      return {
+        transactions: [],
+        loading: true,
+        error: null
+      }
+    },
+    async created() {
+      await this.loadData()
+    },
+    methods: {
+      async loadData() {
+        try {
+          const response = await fetch('/api/transactions')
+          if (!response.ok) throw new Error('Failed to load')
+          this.transactions = await response.json()
+        } catch (err) {
+          this.error = err.message
+        } finally {
+          this.loading = false
+        }
+      },
+      formatAmount(amount, type) {
+        return (type === 'credit' ? '+' : '-') + amount.toFixed(2) + '€'
+      },
+      async deleteTransaction(id) {
+        if (confirm('Supprimer cette transaction ?')) {
+          try {
+            const response = await fetch(`/api/transactions/${id}`, {
+              method: 'DELETE'
+            })
+            if (response.ok) {
+              this.transactions = this.transactions.filter(t => t.transaction_id !== id)
+              alert('Transaction supprimée')
+            }
+          } catch (err) {
+            alert('Erreur: ' + err.message)
+          }
+        }
+      }
+    }
+  }).mount('#app')
+</script>
+
+<style>
+  .transaction-row {
+    display: flex;
+    padding: 12px 0;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  .transaction-row:hover {
+    background-color: #f9fafb;
+  }
+  .col-date { width: 120px; }
+  .col-label { flex: 1; }
+  .col-amount { width: 120px; text-align: right; }
+  .col-category { width: 150px; }
+  .col-actions { width: 80px; text-align: center; }
+  .delete-btn {
+    background: none;
+    border: none;
+    color: #ef4444;
+    cursor: pointer;
+    font-size: 18px;
+  }
+  .delete-btn:hover {
+    color: #dc2626;
+  }
+</style>
+
+<div id="transactions-table">
+  <div v-if="loading" class="text-center py-8">Chargement...</div>
+  <div v-else-if="error" class="text-center py-8 text-red-500">Erreur: {{ error }}</div>
+  <div v-else>
+    <div class="transaction-row font-semibold text-gray-600">
+      <div class="col-date">Date</div>
+      <div class="col-label">Libellé</div>
+      <div class="col-amount">Montant</div>
+      <div class="col-category">Catégorie</div>
+      <div class="col-actions">Actions</div>
+    </div>
+    
+    <div v-for="tx in transactions" :key="tx.transaction_id" class="transaction-row">
+      <div class="col-date">{{ tx.date }}</div>
+      <div class="col-label">{{ tx.label }}</div>
+      <div class="col-amount" :class="tx.type === 'credit' ? 'text-green-600' : 'text-red-600'">
+        {{ formatAmount(tx.amount, tx.type) }}
+      </div>
+      <div class="col-category">{{ tx.category }}</div>
+      <div class="col-actions">
+        <button @click="deleteTransaction(tx.transaction_id)" class="delete-btn" title="Supprimer">
+          🗑️
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

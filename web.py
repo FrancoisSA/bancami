@@ -67,6 +67,16 @@ def api_transaction_update(transaction_id):
     return jsonify({"ok": ok}), (200 if ok else 404)
 
 
+@app.route("/api/transactions/<transaction_id>", methods=["DELETE"])
+def api_transaction_delete(transaction_id):
+    """Supprime une transaction."""
+    from storage import delete_transaction
+    if delete_transaction(transaction_id):
+        return jsonify({"ok": True})
+    else:
+        return jsonify({"ok": False, "error": "Transaction non trouvée"}), 404
+
+
 @app.route("/api/settings/opening-balance", methods=["GET", "PUT"])
 def api_opening_balance():
     now   = datetime.now()
@@ -364,6 +374,23 @@ def api_months():
                "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
         result.append({"value": m, "label": f"{_FR[int(mo)]} {y}", "year": int(y), "month": int(mo)})
     return jsonify(result)
+
+
+@app.route("/admin")
+def admin():
+    """Page d'administration - Affiche les derniers échanges LLM."""
+    try:
+        from llm_wrapper import get_recent_exchanges
+        exchanges = get_recent_exchanges(limit=3)
+    except ImportError:
+        exchanges = []
+    return render_template("admin.html", exchanges=exchanges)
+
+
+@app.route("/delete")
+def delete_page():
+    """Page de suppression de transactions."""
+    return render_template("delete.html")
 
 
 if __name__ == "__main__":

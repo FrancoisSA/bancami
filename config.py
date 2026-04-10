@@ -18,11 +18,17 @@ TELEGRAM_BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
 # L'ID numérique Telegram du seul utilisateur autorisé (whitelist stricte)
 TELEGRAM_USER_ID: int = int(os.environ["TELEGRAM_USER_ID"])
 
+# ── LLM Provider ──────────────────────────────────────────────────────────────
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "anthropic")  # anthropic ou mistral
+
 # ── Anthropic ─────────────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
+ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY")
 
 # Modèle Claude à utiliser pour l'extraction vision
 CLAUDE_MODEL: str = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5")
+
+# ── Mistral (optionnel) ───────────────────────────────────────────────────────
+MISTRAL_API_KEY: str | None = os.getenv("MISTRAL_API_KEY")
 
 # ── Fichiers de données ───────────────────────────────────────────────────────
 DATA_DIR = Path(__file__).parent

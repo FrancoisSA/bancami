@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-4xl">
+  <h1 class="text-2xl font-bold mb-6">Supprimer une transaction</h1>
+
+  <div class="bg-white shadow rounded-lg p-6 mb-6">
+    <h2 class="text-lg font-semibold mb-4">Rechercher une transaction</h2>
+    <div class="flex gap-4">
+      <input type="text" id="searchInput" 
+             placeholder="Rechercher dans le libellé..."
+             class="flex-1 border rounded px-3 py-2">
+      <button onclick="searchTransactions()"
+              class="bg-primary text-white px-4 py-2 rounded hover:bg-blue-700">
+        Rechercher
+      </button>
+    </div>
+  </div>
+
+  <div id="resultsContainer" class="bg-white shadow rounded-lg p-6 hidden">
+    <h2 class="text-lg font-semibold mb-4">Résultats</h2>
+    <div id="resultsList"></div>
+  </div>
+</div>
+
+<script>
+async function searchTransactions() {
+  const query = document.getElementById('searchInput').value.toLowerCase();
+  
+  if (!query) {
+    alert('Veuillez entrer un terme de recherche');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/transactions');
+    const transactions = await response.json();
+    
+    const results = transactions.filter(tx => 
+      tx.label.toLowerCase().includes(query)
+    );
+    
+    displayResults(results);
+    
+  } catch (error) {
+    alert('Erreur: ' + error.message);
+  }
+}
+
+function displayResults(transactions) {
+  const container = document.getElementById('resultsContainer');
+  const list = document.getElementById('resultsList');
+  
+  if (transactions.length === 0) {
+    list.innerHTML = '<p class="text-gray-500 py-4">Aucune transaction trouvée.</p>';
+    container.classList.remove('hidden');
+    return;
+  }
+
+  let html = '<div class="space-y-4">';
+  
+  transactions.forEach(tx => {
+    html += `
+      <div class="border rounded-lg p-4">
+        <div class="flex justify-between items-start mb-2">
+          <div>
+            <p class="font-medium">${tx.label}</p>
+            <p class="text-sm text-gray-500">${tx.date} • ${tx.category}</p>
+          </div>
+          <span class="${tx.type === 'credit' ? 'text-green-600' : 'text-red-600'} font-medium">
+            ${tx.type === 'credit' ? '+' : '-'}${tx.amount.toFixed(2)}€
+          </span>
+        </div>
+        <div class="flex justify-end">
+          <button 
+            onclick="deleteTransaction('${tx.transaction_id}', '${tx.label}')"
+            class="text-red-500 hover:text-red-700 text-sm"
+          >
+            🗑️ Supprimer
+          </button>
+        </div>
+      </div>
+    `;
+  });
+
+  html += '</div>';
+  list.innerHTML = html;
+  container.classList.remove('hidden');
+}
+
+async function deleteTransaction(transactionId, label) {
+  if (!confirm(`Supprimer définitivement: ${label} ?`)) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/transactions/${transactionId}`, {
+      method: 'DELETE'
+    });
+    
+    const result = await response.json();
+    if (result.ok) {
+      alert('Transaction supprimée avec succès !');
+      searchTransactions(); // Rafraîchir les résultats
+    } else {
+      alert(`Erreur: ${result.error || 'Impossible de supprimer'}`);
+    }
+  } catch (error) {
+    alert('Erreur: ' + error.message);
+  }
+}
+</script>
+{% endblock %}
