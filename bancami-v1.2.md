@@ -210,10 +210,10 @@ ANTHROPIC_API_KEY=sk-ant-api03-...
 # MISTRAL_API_KEY=sk-mistral-...
 
 # Token du bot Telegram
-TELEGRAM_BOT_TOKEN=8378278996:AAE...
+TELEGRAM_BOT_TOKEN=ton_token_ici
 
 # Votre user_id Telegram
-TELEGRAM_USER_ID=643004339
+TELEGRAM_USER_ID=ton_user_id_ici
 ```
 
 ### Fichiers de données
